@@ -11,11 +11,8 @@ import android.widget.*
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
-import com.example.chatai.ChatAdapter
-import com.example.chatai.ChatMessage
-import com.example.chatai.OllamaClient
-import com.example.chatai.R
+import androidx.recyclerview.widget.RecyclerView // ktlint-disable no-wildcard-imports
+import com.example.chatai.*
 
 class MainActivity : AppCompatActivity() {
 
@@ -133,26 +130,40 @@ class MainActivity : AppCompatActivity() {
             callback = object : OllamaClient.ChatCallback {
                 override fun onResponse(response: String) {
                     runOnUiThread {
-                        // Final response after streaming ends
+                        // Response complete - no need to do anything as streaming already handled it
                     }
                 }
 
                 override fun onPartialResponse(partialResponse: String) {
                     runOnUiThread {
-                        // Update chat UI with partial response
+                        // Remove typing indicator on first partial response
+                        if (partialResponse.length <= 10) { // First chunk
+                            chatAdapter.removeTypingIndicator()
+                            val aiMessage = ChatMessage(message = partialResponse, isUser = false)
+                            chatAdapter.addMessage(aiMessage)
+                        } else {
+                            // Update the last message with new partial response
+                            chatAdapter.updateLastMessage(partialResponse)
+                        }
                     }
                 }
 
                 override fun onError(error: String) {
                     runOnUiThread {
+                        chatAdapter.removeTypingIndicator()
+                        val errorMessage = ChatMessage(
+                            message = "Sorry, I encountered an error: $error",
+                            isUser = false
+                        )
+                        chatAdapter.addMessage(errorMessage)
+
+                        // Show toast for network errors
                         Toast.makeText(this@MainActivity, error, Toast.LENGTH_LONG).show()
                     }
                 }
             },
-            useStreaming = true,
-            useChatApi = true  // 🔑 set to false if you want /api/generate
+            useStreaming = true
         )
-
     }
 
     private fun hideKeyboard() {
