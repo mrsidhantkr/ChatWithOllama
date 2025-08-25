@@ -11,8 +11,11 @@ import android.widget.*
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView // ktlint-disable no-wildcard-imports
-import com.example.chatai.*
+import androidx.recyclerview.widget.RecyclerView
+import com.example.chatai.ChatAdapter
+import com.example.chatai.ChatMessage
+import com.example.chatai.GeminiClient
+import com.example.chatai.R
 
 class MainActivity : AppCompatActivity() {
 
@@ -20,7 +23,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var editTextMessage: EditText
     private lateinit var buttonSend: ImageButton
     private lateinit var chatAdapter: ChatAdapter
-    private lateinit var ollamaClient: OllamaClient
+    private lateinit var geminiClient: GeminiClient
+
+    // Replace with your actual Gemini API key
+    private val GEMINI_API_KEY = "AIzaSyACuEzK_2WIxfNCI3NVV9OcdFivJXsd1tI"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -29,7 +35,7 @@ class MainActivity : AppCompatActivity() {
         initViews()
         setupRecyclerView()
         setupClickListeners()
-        initializeOllama()
+        initializeGemini()
     }
 
     private fun initViews() {
@@ -71,17 +77,22 @@ class MainActivity : AppCompatActivity() {
         })
     }
 
-    private fun initializeOllama() {
-        ollamaClient = OllamaClient()
+    private fun initializeGemini() {
+        if (GEMINI_API_KEY == "YOUR_API_KEY_HERE") {
+            showApiKeyDialog()
+            return
+        }
 
-        // Check connection to Ollama server
-        ollamaClient.checkConnection { isConnected, message ->
+        geminiClient = GeminiClient(GEMINI_API_KEY)
+
+        // Check connection to Gemini API
+        geminiClient.checkConnection { isConnected, message ->
             runOnUiThread {
                 if (isConnected) {
-                    Toast.makeText(this, "✅ Connected to Ollama", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "✅ Connected to Gemini", Toast.LENGTH_SHORT).show()
                     // Add welcome message
                     val welcomeMessage = ChatMessage(
-                        message = "Hello! I'm running locally via Ollama. How can I help you today?",
+                        message = "Hello! I'm powered by Google's Gemini AI. How can I help you today?",
                         isUser = false
                     )
                     chatAdapter.addMessage(welcomeMessage)
@@ -93,11 +104,19 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun showApiKeyDialog() {
+        AlertDialog.Builder(this)
+            .setTitle("API Key Required")
+            .setMessage("Please add your Gemini API key to the code.\n\n1. Go to Google AI Studio (aistudio.google.com)\n2. Create an API key\n3. Replace 'YOUR_API_KEY_HERE' in MainActivity.kt")
+            .setPositiveButton("OK", null)
+            .show()
+    }
+
     private fun showConnectionError(error: String) {
         AlertDialog.Builder(this)
-            .setTitle("Ollama Connection Error")
-            .setMessage("$error\n\nMake sure:\n• Ollama is installed and running\n• Server is accessible at the configured URL\n• Model is downloaded (run 'ollama pull llama2')")
-            .setPositiveButton("Retry") { _, _ -> initializeOllama() }
+            .setTitle("Gemini Connection Error")
+            .setMessage("$error\n\nMake sure:\n• You have a valid Gemini API key\n• You have internet connection\n• API key has proper permissions")
+            .setPositiveButton("Retry") { _, _ -> initializeGemini() }
             .setNegativeButton("Continue Offline", null)
             .show()
     }
@@ -120,32 +139,25 @@ class MainActivity : AppCompatActivity() {
         // Hide keyboard
         hideKeyboard()
 
-        // Send to Ollama
-        sendToOllama(messageText)
+        // Send to Gemini
+        sendToGemini(messageText)
     }
 
-    private fun sendToOllama(message: String) {
-        ollamaClient.sendMessage(
+    private fun sendToGemini(message: String) {
+        geminiClient.sendMessage(
             message = message,
-            callback = object : OllamaClient.ChatCallback {
+            callback = object : GeminiClient.ChatCallback {
                 override fun onResponse(response: String) {
                     runOnUiThread {
-                        // Response complete - no need to do anything as streaming already handled it
+                        chatAdapter.removeTypingIndicator()
+                        val aiMessage = ChatMessage(message = response, isUser = false)
+                        chatAdapter.addMessage(aiMessage)
                     }
                 }
 
                 override fun onPartialResponse(partialResponse: String) {
-                    runOnUiThread {
-                        // Remove typing indicator on first partial response
-                        if (partialResponse.length <= 10) { // First chunk
-                            chatAdapter.removeTypingIndicator()
-                            val aiMessage = ChatMessage(message = partialResponse, isUser = false)
-                            chatAdapter.addMessage(aiMessage)
-                        } else {
-                            // Update the last message with new partial response
-                            chatAdapter.updateLastMessage(partialResponse)
-                        }
-                    }
+                    // Gemini doesn't support streaming in this implementation
+                    // But you could implement it for future use
                 }
 
                 override fun onError(error: String) {
@@ -162,7 +174,7 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             },
-            useStreaming = true
+            useStreaming = false
         )
     }
 
@@ -184,7 +196,18 @@ class MainActivity : AppCompatActivity() {
                 clearChat()
                 true
             }
-
+            R.id.action_model_info -> {
+                showModelInfo()
+                true
+            }
+            R.id.action_connection -> {
+                testConnection()
+                true
+            }
+            R.id.action_api_usage -> {
+                showApiUsageInfo()
+                true
+            }
             else -> super.onOptionsItemSelected(item)
         }
     }
@@ -200,32 +223,32 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun showAvailableModels() {
-        ollamaClient.getAvailableModels { models ->
+    private fun showModelInfo() {
+        geminiClient.getModelInfo { info ->
             runOnUiThread {
-                if (models.isNotEmpty()) {
-                    val modelArray = models.toTypedArray()
-                    AlertDialog.Builder(this)
-                        .setTitle("Available Models")
-                        .setItems(modelArray) { _, which ->
-                            val selectedModel = models[which]
-                            Toast.makeText(this, "Selected: $selectedModel", Toast.LENGTH_SHORT).show()
-                            // Here you could switch models if needed
-                        }
-                        .show()
-                } else {
-                    Toast.makeText(this, "No models found. Run 'ollama pull llama2'", Toast.LENGTH_LONG).show()
-                }
+                AlertDialog.Builder(this)
+                    .setTitle("Model Information")
+                    .setMessage(info)
+                    .setPositiveButton("OK", null)
+                    .show()
             }
         }
     }
 
     private fun testConnection() {
-        ollamaClient.checkConnection { isConnected, message ->
+        geminiClient.checkConnection { isConnected, message ->
             runOnUiThread {
                 val icon = if (isConnected) "✅" else "❌"
                 Toast.makeText(this, "$icon $message", Toast.LENGTH_SHORT).show()
             }
         }
+    }
+
+    private fun showApiUsageInfo() {
+        AlertDialog.Builder(this)
+            .setTitle("Gemini API - Free Tier")
+            .setMessage("Free Tier Limits:\n• 1,500 requests per day\n• 15 requests per minute\n• 1 million tokens per minute\n\nUpgrade to paid plan for higher limits.")
+            .setPositiveButton("OK", null)
+            .show()
     }
 }
